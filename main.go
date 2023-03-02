@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -9,11 +10,12 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 )
 
 func main() {
 	searcher := Searcher{}
-	err := searcher.Load("completeworks.txt")
+	err := searcher.Load("justtitles.txt")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -35,9 +37,15 @@ func main() {
 	}
 }
 
+type WorksContent struct {
+	Works map[string][]string
+}
+
 type Searcher struct {
-	CompleteWorks string
+	CompleteWorks string // Giant string of the entirety of shakespeare
 	SuffixArray   *suffixarray.Index
+	Scanner       *bufio.Scanner
+	WorksMap      map[string][]string
 }
 
 func handleSearch(searcher Searcher) func(w http.ResponseWriter, r *http.Request) {
@@ -63,6 +71,16 @@ func handleSearch(searcher Searcher) func(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Searcher) Load(filename string) error {
+	file, err := os.Open("justtitles.txt")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	s.Scanner = scanner
+	s.WorksMap = make(map[string][]string)
+	s.GenerateWorksArray()
+
 	dat, err := ioutil.ReadFile(filename)
 	if err != nil {
 		return fmt.Errorf("Load: %w", err)
@@ -70,6 +88,28 @@ func (s *Searcher) Load(filename string) error {
 	s.CompleteWorks = string(dat)
 	s.SuffixArray = suffixarray.New(dat)
 	return nil
+}
+
+func (s *Searcher) GenerateWorksArray() {
+	inContents := false // Flag that determines if we're currently in the table of contents
+	for s.Scanner.Scan() {
+		currentLine := strings.Trim(s.Scanner.Text(), " ")
+		if currentLine == "Contents" {
+			inContents = true
+		}
+		_, exists := s.WorksMap[currentLine]
+		if exists && currentLine != "\n" && currentLine != "" {
+			inContents = false
+		}
+		if inContents && currentLine != "\n" {
+			var strArray []string
+			s.WorksMap[currentLine] = strArray
+		}
+	}
+	fmt.Printf("%+v", s.WorksMap)
+	if err := s.Scanner.Err(); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func (s *Searcher) Search(query string) []string {
